@@ -2,8 +2,6 @@
 # Makefile for hyperfleet-hooks
 # ==============================================================================
 
-include .bingo/Variables.mk
-
 .PHONY: help build build-all test test-coverage lint clean install validate-commits \
        check-container-tool image image-push
 
@@ -85,9 +83,9 @@ test-coverage: test ## Run tests with coverage report
 # Quality
 # ------------------------------------------------------------------------------
 
-lint: $(GOLANGCI_LINT) ## Run linters
+lint: ## Run linters
 	@echo "Running linters..."
-	$(GOLANGCI_LINT) run --timeout=5m
+	go tool golangci-lint run --timeout=5m
 	@echo "✓ Linting passed"
 
 # ------------------------------------------------------------------------------
@@ -147,3 +145,14 @@ image-push: check-container-tool image ## Build and push container image
 validate-commits: build ## Validate commits in current branch (CI mode)
 	@echo "Validating commits..."
 	@./bin/hyperfleet-hooks commitlint --pr
+
+
+# ------------------------------------------------------------------------------
+# Tools
+# ------------------------------------------------------------------------------
+
+##@ Tools
+
+.PHONY: tools
+tools: ## Install pinned tool versions from go.mod tool directives
+	go install tool
