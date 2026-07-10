@@ -12,7 +12,7 @@ System-level Go tooling hooks that delegate to existing Make targets in HyperFle
 
 ## Overview
 
-HyperFleet Go repositories use [bingo](https://github.com/bwplotka/bingo) to pin development tool versions (see [dependency pinning standard](https://github.com/openshift-hyperfleet/architecture/blob/main/hyperfleet/standards/dependency-pinning.md)). Rather than reimplementing bingo resolution, these hooks use `language: system` and delegate to the consuming repo's existing Make targets, which already handle tool resolution via bingo.
+HyperFleet Go repositories pin development tools in `tools/go.mod` using Go 1.24+ [tool directives](https://go.dev/doc/modules/managing-dependencies#tools) (see [dependency pinning standard](https://github.com/openshift-hyperfleet/architecture/blob/main/hyperfleet/standards/dependency-pinning.md)). These hooks use `language: system` and delegate to the consuming repo's existing Make targets, which invoke tools via `go tool -modfile=tools/go.mod <name>`.
 
 ## Hooks
 
@@ -80,14 +80,14 @@ hooks:
 
 Since these hooks use `language: system`, the consuming repository **must** have the corresponding Make targets:
 
-- `make lint` — runs golangci-lint (typically via bingo)
+- `make lint` - runs golangci-lint (via tools/go.mod)
 - `make gofmt` — checks Go file formatting
 - `make go-vet` — runs `go vet ./...`
 
-These targets are already standard in HyperFleet repositories. Ensure bingo-managed tools are built:
+These targets are already standard in HyperFleet repositories. Ensure tools are available:
 
 ```bash
-make tools-install
+make tools
 ```
 
 ## Troubleshooting
@@ -98,19 +98,17 @@ The consuming repository is missing the required Make target. Ensure your Makefi
 
 ### golangci-lint binary not found
 
-If `make lint` fails because golangci-lint is not installed, build the bingo-managed tools:
+If `make lint` fails because golangci-lint is not installed, tidy the tools module:
 
 ```bash
-make tools-install
-# or
-bingo get
+make tools
 ```
 
 ### Different results from direct make lint
 
 These hooks run the exact same Make targets, so results should be identical. If they differ, check:
 
-1. The bingo binary exists: `ls .bingo/golangci-lint-*`
+1. The tool module is tidy: `make verify-tools`
 2. The `.golangci.yml` config is present in your repo root
 3. Pre-commit environment is not interfering (check `pre-commit run --verbose`)
 

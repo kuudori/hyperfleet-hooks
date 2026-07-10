@@ -41,7 +41,7 @@ In Prow, a pre-built container image (`quay.io/openshift-hyperfleet/hyperfleet-g
 | Hook ID | Stage | Description |
 | --- | --- | --- |
 | `hyperfleet-commitlint` | `commit-msg` | Validates commit messages against the [HyperFleet Commit Standard](https://github.com/openshift-hyperfleet/architecture/blob/main/hyperfleet/standards/commit-standard.md) |
-| `hyperfleet-golangci-lint` | `pre-commit` | Runs `make lint` — leverages the repo's existing bingo-managed golangci-lint |
+| `hyperfleet-golangci-lint` | `pre-commit` | Runs `make lint` - uses golangci-lint pinned in tools/go.mod |
 | `hyperfleet-gofmt` | `pre-commit` | Runs `make gofmt` — checks Go file formatting |
 | `hyperfleet-go-vet` | `pre-commit` | Runs `make go-vet` — finds suspicious constructs in Go code |
 
@@ -53,7 +53,7 @@ Validates commit messages and PR titles against the [HyperFleet Commit Standard]
 
 ### Go Tooling Hooks
 
-The Go tooling hooks use `language: system` and delegate to the consuming repo's existing Make targets (`make lint`, `make gofmt`, `make go-vet`). This leverages the repo's existing [bingo](https://github.com/bwplotka/bingo)-managed tool resolution without reimplementing it. See the [dependency pinning standard](https://github.com/openshift-hyperfleet/architecture/blob/main/hyperfleet/standards/dependency-pinning.md) for details.
+The Go tooling hooks use `language: system` and delegate to the consuming repo's existing Make targets (`make lint`, `make gofmt`, `make go-vet`). This uses the repo's tool versions pinned in `tools/go.mod`. See the [dependency pinning standard](https://github.com/openshift-hyperfleet/architecture/blob/main/hyperfleet/standards/dependency-pinning.md) for details.
 
 **[→ Documentation](docs/go-tooling.md)**
 
@@ -89,7 +89,7 @@ pre-commit install --hook-type pre-commit
 
 **Note**: The `commitlint` hook is built automatically by pre-commit (`language: golang`). The Go tooling hooks (`golangci-lint`, `gofmt`, `go-vet`) use `language: system` and require the consuming repo to have the corresponding Make targets.
 
-See [commitlint documentation](docs/commitlint.md) for Prow CI setup and [go-tooling documentation](docs/go-tooling.md) for bingo configuration.
+See [commitlint documentation](docs/commitlint.md) for Prow CI setup and [go-tooling documentation](docs/go-tooling.md) for tool configuration.
 
 ## Development
 
@@ -98,7 +98,7 @@ These instructions are only needed if you are contributing to this repository.
 ```bash
 make build    # Build binary
 make test     # Run tests
-make lint     # Run linters (requires golangci-lint, managed by bingo)
+make lint     # Run linters (golangci-lint, pinned in tools/go.mod)
 make image    # Build container image
 ```
 

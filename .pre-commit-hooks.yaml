@@ -14,10 +14,9 @@
   always_run: true
 
 - id: hyperfleet-golangci-lint
-  name: Run golangci-lint (bingo-aware)
+  name: Run golangci-lint
   description: >
-    Runs golangci-lint via Make target, which leverages the bingo-managed
-    version from .bingo/ when available.
+    Runs golangci-lint via Make target.
   entry: make lint
   language: system
   types: [go]
@@ -26,8 +25,7 @@
 - id: hyperfleet-gofmt
   name: Check Go formatting
   description: >
-    Checks Go file formatting via Make target, which leverages the
-    bingo-managed version from .bingo/ when available.
+    Checks Go file formatting via Make target.
   entry: make gofmt
   language: system
   types: [go]

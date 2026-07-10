@@ -447,6 +447,7 @@ func getCommitsInRange(repo *git.Repository, baseSHA, headSHA string) ([]string,
 		return nil, fmt.Errorf("failed to get worktree: %w", err)
 	}
 
+	//nolint:gosec // args are SHA hashes from git, not user input
 	cmd := exec.Command("git", "rev-list", baseSHA+".."+headSHA)
 	cmd.Dir = wt.Filesystem.Root()
 
@@ -466,4 +467,3 @@ func getCommitsInRange(repo *git.Repository, baseSHA, headSHA string) ([]string,
 
 	return strings.Split(trimmed, "\n"), nil
 }
-

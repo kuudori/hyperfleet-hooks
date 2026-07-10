@@ -351,12 +351,12 @@ func TestGetCommitsInRange_DivergedBranches(t *testing.T) {
 		t.Helper()
 		testFile := filepath.Join(tempDir, filename)
 		require.NoError(t, os.WriteFile(testFile, []byte(content), 0644))
-		_, err := worktree.Add(filename)
+		_, err = worktree.Add(filename)
 		require.NoError(t, err)
-		hash, err := worktree.Commit(message, &git.CommitOptions{
+		hash, commitErr := worktree.Commit(message, &git.CommitOptions{
 			Author: &object.Signature{Name: "Test", Email: "test@example.com"},
 		})
-		require.NoError(t, err)
+		require.NoError(t, commitErr)
 		return hash.String()
 	}
 
@@ -406,7 +406,8 @@ func TestValidateCommits_MultiLineMessage(t *testing.T) {
 	_, err = worktree.Add("test.txt")
 	require.NoError(t, err)
 
-	multilineHash, err := worktree.Commit("feat: add new feature\n\nDetailed description\nspanning multiple lines.", &git.CommitOptions{
+	commitMsg := "feat: add new feature\n\nDetailed description\nspanning multiple lines."
+	multilineHash, err := worktree.Commit(commitMsg, &git.CommitOptions{
 		Author: &object.Signature{Name: "developer", Email: "developer@redhat.com"},
 	})
 	require.NoError(t, err)

@@ -18,9 +18,9 @@ type Validator struct {
 	commitPattern       *regexp.Regexp
 	jiraPattern         *regexp.Regexp
 	validTypes          map[string]bool
-	maxSubjectLength    int
 	whitelistedAuthors  map[string]bool
 	whitelistedPatterns []authorPattern
+	maxSubjectLength    int
 }
 
 // ValidationError represents a validation error
@@ -165,7 +165,8 @@ func (v *Validator) ValidatePRTitle(title string) *ValidationResult {
 	return result
 }
 
-// IsWhitelistedAuthor returns true if any of the given identifiers (email, name, or GitHub login) belongs to a whitelisted bot account.
+// IsWhitelistedAuthor returns true if any of the given identifiers
+// (email, name, or GitHub login) belongs to a whitelisted bot account.
 func (v *Validator) IsWhitelistedAuthor(identifiers ...string) bool {
 	for _, id := range identifiers {
 		lower := strings.ToLower(id)

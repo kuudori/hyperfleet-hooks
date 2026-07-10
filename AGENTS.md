@@ -2,7 +2,7 @@
 
 Shared validation CLI and pre-commit hooks for all HyperFleet repositories. Validates commit messages and PR titles against HyperFleet Commit Standard (Conventional Commits with optional JIRA prefix). Consumed as a pre-commit hook and as a container image in Prow CI.
 
-Go 1.25.0 · Cobra CLI · go-git · go-github · stretchr/testify · golangci-lint (bingo-managed)
+Go 1.25.0 · Cobra CLI · go-git · go-github · stretchr/testify · golangci-lint (pinned in tools/go.mod)
 
 ## Verification
 
@@ -10,7 +10,7 @@ Go 1.25.0 · Cobra CLI · go-git · go-github · stretchr/testify · golangci-li
 |--------|-------------|
 | `make build` | Build binary → `bin/hyperfleet-hooks` |
 | `make build-all` | Cross-platform binaries (linux/darwin, amd64/arm64) |
-| `make lint` | golangci-lint (bingo-managed, config: `.golangci.yml`) |
+| `make lint` | golangci-lint (pinned in tools/go.mod, config: `.golangci.yml`) |
 | `make test` | Unit tests with race detection + coverage profile |
 | `make test-coverage` | `make test` + opens HTML coverage report |
 | `make validate-commits` | Build + `hyperfleet-hooks commitlint --pr` (CI mode) |

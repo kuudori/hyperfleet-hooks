@@ -2,7 +2,8 @@
 # Makefile for hyperfleet-hooks
 # ==============================================================================
 
-include .bingo/Variables.mk
+TOOL_MOD := tools/go.mod
+gotool = go tool -modfile=$(TOOL_MOD) $(1)
 
 .PHONY: help build build-all test test-coverage lint clean install validate-commits \
        check-container-tool image image-push
@@ -85,10 +86,18 @@ test-coverage: test ## Run tests with coverage report
 # Quality
 # ------------------------------------------------------------------------------
 
-lint: $(GOLANGCI_LINT) ## Run linters
+lint: ## Run linters
 	@echo "Running linters..."
-	$(GOLANGCI_LINT) run --timeout=5m
+	$(call gotool,golangci-lint) run --timeout=5m
 	@echo "✓ Linting passed"
+
+.PHONY: tools
+tools: ## Ensure tool dependencies are up to date
+	cd tools && go mod tidy
+
+.PHONY: verify-tools
+verify-tools: tools ## Fail in CI if tool module drifted
+	@git diff --exit-code tools/go.mod tools/go.sum || (echo "tool modules out of date; run 'make tools'" && exit 1)
 
 # ------------------------------------------------------------------------------
 # Utility
