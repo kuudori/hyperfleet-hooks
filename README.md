@@ -62,7 +62,7 @@ The Go tooling hooks use `language: system` and delegate to the consuming repo's
 ### Prerequisites
 
 - [pre-commit](https://pre-commit.com/#install) installed
-- Go 1.25+ available (for the `commitlint` hook — built automatically by pre-commit)
+- Go 1.26+ available (for the `commitlint` hook — built automatically by pre-commit)
 - `make` targets (`lint`, `gofmt`, `go-vet`) in the consuming repo (for Go tooling hooks)
 
 ### Adding to your repository
