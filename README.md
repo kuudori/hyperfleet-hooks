@@ -51,6 +51,12 @@ Validates commit messages and PR titles against the [HyperFleet Commit Standard]
 
 **[→ Full Documentation](docs/commitlint.md)**
 
+### Tekton Bundle Verification
+
+`hyperfleet-hooks verify-tekton-bundles` checks that every digest-pinned `quay.io/konflux-ci/tekton-catalog/` reference in a repository's `.tekton/*.yaml` pipelines is a Tekton bundle the Tekton resolver accepts. It runs from a released binary (`go install .../cmd/hyperfleet-hooks@<release>`), not as a pre-commit hook.
+
+**[→ Documentation](docs/tekton-bundles.md)**
+
 ### Go Tooling Hooks
 
 The Go tooling hooks use `language: system` and delegate to the consuming repo's existing Make targets (`make lint`, `make gofmt`, `make go-vet`). This uses the repo's tool versions pinned in `tools/go.mod`. See the [dependency pinning standard](https://github.com/openshift-hyperfleet/architecture/blob/main/hyperfleet/standards/dependency-pinning.md) for details.

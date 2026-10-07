@@ -25,6 +25,7 @@ hyperfleet-hooks commitlint <file>              # Validate single commit message
 echo "feat: ..." | hyperfleet-hooks commitlint  # Validate from stdin
 hyperfleet-hooks commitlint --pr                # CI mode: validate all PR commits + PR title
 hyperfleet-hooks version                        # Print version info
+hyperfleet-hooks verify-tekton-bundles [--directory .tekton]  # Verify pinned Konflux task bundle digests
 ```
 
 ## Source of Truth
@@ -32,11 +33,13 @@ hyperfleet-hooks version                        # Print version info
 | Topic | Location |
 |-------|----------|
 | Commitlint usage + Prow setup | `docs/commitlint.md` |
+| Tekton bundle verification | `docs/tekton-bundles.md` |
 | Go tooling hooks (lint, fmt, vet) | `docs/go-tooling.md` |
 | Pre-commit hook definitions | `.pre-commit-hooks.yaml` |
 | Validation logic | `pkg/commitlint/validator.go` |
 | GitHub API client | `pkg/github/client.go` |
 | CLI command wiring | `cmd/hyperfleet-hooks/commitlint/commitlint.go` |
+| Tekton bundle logic + CLI wiring | `pkg/tektonbundles/`, `cmd/hyperfleet-hooks/tektonbundles/` |
 | Linter config | `.golangci.yml` |
 | Container image | `Dockerfile` |
 | Repo metadata | `.hyperfleet.yaml` |
