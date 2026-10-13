@@ -13,7 +13,7 @@ Go 1.26.0 · Cobra CLI · go-git · go-github · stretchr/testify · golangci-li
 | `make lint` | golangci-lint (pinned in tools/go.mod, config: `.golangci.yml`) |
 | `make test` | Unit tests with race detection + coverage profile |
 | `make test-coverage` | `make test` + opens HTML coverage report |
-| `make validate-commits` | Build + `hyperfleet-hooks commitlint --pr` (CI mode) |
+| `make validate-commits` | Build + `hyperfleet-hooks commitlint --pr --commits` (needs the Prow PR env) |
 | `make image` | Build container image (podman/docker auto-detected) |
 
 Pre-push order: `make lint` → `make test` → `make build`.
@@ -23,7 +23,8 @@ Pre-push order: `make lint` → `make test` → `make build`.
 ```bash
 hyperfleet-hooks commitlint <file>              # Validate single commit message from file
 echo "feat: ..." | hyperfleet-hooks commitlint  # Validate from stdin
-hyperfleet-hooks commitlint --pr                # CI mode: validate all PR commits + PR title
+hyperfleet-hooks commitlint --pr                # CI mode: validate the PR title (becomes the squashed commit)
+hyperfleet-hooks commitlint --pr --commits      # CI mode: also validate every commit in the PR range
 hyperfleet-hooks version                        # Print version info
 ```
 
@@ -36,6 +37,7 @@ hyperfleet-hooks version                        # Print version info
 | Pre-commit hook definitions | `.pre-commit-hooks.yaml` |
 | Validation logic | `pkg/commitlint/validator.go` |
 | GitHub API client | `pkg/github/client.go` |
+| Prow JOB_SPEC parsing | `pkg/prow/jobspec.go` |
 | CLI command wiring | `cmd/hyperfleet-hooks/commitlint/commitlint.go` |
 | Linter config | `.golangci.yml` |
 | Container image | `Dockerfile` |
@@ -47,7 +49,12 @@ Four pre-commit hooks defined in `.pre-commit-hooks.yaml`:
 - `hyperfleet-commitlint` — validates commit messages (Go binary, `language: golang`)
 - `hyperfleet-golangci-lint`, `hyperfleet-gofmt`, `hyperfleet-go-vet` — delegate to consuming repo's Make targets (`language: system`)
 
-CI mode (`--pr`) commit range detection priority:
+CI mode (`--pr`) validates the PR title only: PRs are squashed on merge, so the title is the commit that lands on `main`. Commits inside a PR need only the `<type>: <subject>` shape, enforced locally. PR title source priority:
+1. `JOB_SPEC` env var (`refs.pulls[0].title`, parsed by `pkg/prow/jobspec.go`)
+2. GitHub API via `REPO_OWNER` + `REPO_NAME` + `PULL_NUMBER`
+3. Neither: fail (never warn and pass)
+
+Per-commit validation (`--pr --commits`) commit range detection priority:
 1. `PULL_REFS` env var (Prow standard, most accurate)
 2. `PULL_BASE_SHA` + `PULL_PULL_SHA`
 3. `PULL_BASE_REF` + `HEAD` (local fallback)

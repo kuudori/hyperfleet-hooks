@@ -17,10 +17,12 @@ Complete guide for using hyperfleet-hooks commitlint in local development and Pr
 `hyperfleet-hooks commitlint` validates commit messages against the HyperFleet Commit Standard, based on [Conventional Commits](https://www.conventionalcommits.org/).
 
 **Key Features**:
-- ✅ Validates commit message format
-- ✅ Validates PR titles in CI
-- ✅ Works locally (pre-commit) and in Prow CI
+- ✅ Validates commit message format locally (pre-commit)
+- ✅ Validates the PR title in Prow CI (the title becomes the squashed commit)
+- ✅ Optional per-commit validation in CI with `--commits`
 - ✅ Zero configuration for other components
+
+**What is checked where**: CI validates the PR title, which becomes the squashed commit on `main`. Commits inside a PR need only the `<type>: <subject>` shape, enforced locally by the `commit-msg` hook. Push review fixes as new commits instead of amending.
 
 ## Local Development
 
@@ -62,16 +64,18 @@ echo "feat: add new feature" | hyperfleet-hooks commitlint
 ### Overview
 
 `hyperfleet-hooks commitlint --pr` automatically:
-1. Detects commit range from environment variables
-2. Validates all commits in the PR
-3. Validates PR title via GitHub API
-4. Reports results
+1. Reads the PR title from the `JOB_SPEC` environment variable that Prow sets on every job
+2. Falls back to the GitHub API (`REPO_OWNER`, `REPO_NAME`, `PULL_NUMBER`) when `JOB_SPEC` has no pull request
+3. Fails the job when no title can be obtained from either source
+4. Validates the PR title and reports the result
+
+With `--pr --commits` it also detects the commit range from the environment and validates every commit in the PR before the title.
 
 ### PR Title Requirements
 
 PR titles must include JIRA ticket: `<JIRA_PROJECT_ID>-<TICKET_NUM> - <type>: <subject>`
 
-*Why?* For squash merges, PR title becomes the final commit message with traceability to JIRA.
+*Why?* PRs are squashed on merge, so the PR title becomes the commit message on `main` and carries the traceability to JIRA. Individual commits inside the PR do not reach `main`, which is why CI does not check them.
 
 Examples:
 - ✅ `HYPERFLEET-123 - feat: add cluster validation`
@@ -111,18 +115,24 @@ Prow automatically provides these variables (no configuration needed):
 
 | Variable | Example | Description |
 |----------|---------|-------------|
-| `PULL_REFS` | `main:abc123,456:def789` | Base and PR SHAs (most accurate) |
-| `PULL_BASE_SHA` | `abc123...` | Base branch SHA (fallback) |
-| `PULL_PULL_SHA` | `def789...` | PR head SHA (fallback) |
-| `PULL_BASE_REF` | `main` | Target branch name |
-| `PULL_NUMBER` | `123` | PR number |
-| `REPO_OWNER` | `openshift-hyperfleet` | Repository owner |
-| `REPO_NAME` | `hyperfleet-api` | Repository name |
-| `GITHUB_TOKEN` | `ghp_...` | GitHub API token (optional) |
+| `JOB_SPEC` | `{"refs":{"pulls":[{"number":123,"title":"..."}]}}` | Prow job spec JSON, the primary source of the PR title and author |
+| `PULL_NUMBER` | `123` | PR number (GitHub API fallback for the title) |
+| `REPO_OWNER` | `openshift-hyperfleet` | Repository owner (GitHub API fallback) |
+| `REPO_NAME` | `hyperfleet-api` | Repository name (GitHub API fallback) |
+| `GITHUB_TOKEN` | `ghp_...` | GitHub API token (optional, only used by the fallback) |
+| `PULL_REFS` | `main:abc123,456:def789` | Base and PR SHAs for `--commits` (most accurate) |
+| `PULL_BASE_SHA` | `abc123...` | Base branch SHA for `--commits` (fallback) |
+| `PULL_PULL_SHA` | `def789...` | PR head SHA for `--commits` (fallback) |
+| `PULL_BASE_REF` | `main` | Target branch name for `--commits` |
 
-> **Note**: If `GITHUB_TOKEN` is not set, the tool uses the unauthenticated GitHub API (60 req/hr rate limit) and prints a warning to stderr. Set `GITHUB_TOKEN` in CI environments to avoid hitting rate limits.
+> **Note**: If `GITHUB_TOKEN` is not set, the GitHub API fallback is unauthenticated (60 req/hr rate limit) and prints a warning to stderr. In Prow the title normally comes from `JOB_SPEC`, so the API is only reached when that spec has no pull request.
 
-**Commit range detection priority**:
+**PR title source priority**:
+1. `JOB_SPEC` (`refs.pulls[0].title`, set by Prow on every decorated job)
+2. GitHub API via `REPO_OWNER`, `REPO_NAME`, `PULL_NUMBER`
+3. Neither available: the job fails
+
+**Commit range detection priority** (`--commits` only):
 1. `PULL_REFS` (most accurate)
 2. `PULL_BASE_SHA` + `PULL_PULL_SHA`
 3. `PULL_BASE_REF` + `HEAD` (local fallback)
@@ -180,8 +190,11 @@ git commit -m "ci: update hyperfleet-git-hooks to v1.1.0"
 # Validate single commit message
 hyperfleet-hooks commitlint [file]
 
-# Validate entire PR (commits + title)
+# Validate the PR title (CI mode)
 hyperfleet-hooks commitlint --pr
+
+# Validate the PR title and every commit in the PR
+hyperfleet-hooks commitlint --pr --commits
 
 # Show version
 hyperfleet-hooks version
@@ -191,7 +204,8 @@ hyperfleet-hooks version
 
 | Flag | Description |
 |------|-------------|
-| `--pr` | Validate all commits and PR title (CI mode) |
+| `--pr` | Validate the PR title (CI mode, title read from `JOB_SPEC` or the GitHub API) |
+| `--commits` | With `--pr`, also validate every commit in the PR range |
 | `-h, --help` | Show help |
 
 ### Exit Codes
@@ -259,6 +273,7 @@ Common errors:
 - `type must be one of` → Use valid type (feat, fix, docs, etc.)
 - `header must not exceed 72 characters` → `<type>: <subject>` must be ≤ 72 chars (excluding JIRA prefix)
 - `pr-title-requires-jira` → PR titles must start with `<JIRA_PROJECT_ID>-<TICKET_NUM> - `
+- `could not get PR title` → neither `JOB_SPEC` nor the GitHub API env (`REPO_OWNER`, `REPO_NAME`, `PULL_NUMBER`) yielded a title; check the Prow job is decorated
 
 Hook issues:
 - Reinstall: `pre-commit install --hook-type commit-msg`

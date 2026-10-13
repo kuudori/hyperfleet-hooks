@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/openshift-hyperfleet/hyperfleet-hooks/pkg/commitlint"
 	ghclient "github.com/openshift-hyperfleet/hyperfleet-hooks/pkg/github"
+	"github.com/openshift-hyperfleet/hyperfleet-hooks/pkg/prow"
 	"github.com/spf13/cobra"
 )
 
@@ -25,12 +27,16 @@ var (
 	// errValidationFailed is returned when commit message validation fails
 	errValidationFailed = errors.New("validation failed")
 
+	// errCommitsRequiresPR is returned when --commits is used without --pr
+	errCommitsRequiresPR = errors.New("--commits can only be used together with --pr")
+
 	// shaPattern matches valid git SHA (7-40 hex characters)
 	shaPattern = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
 )
 
 var (
-	pr bool
+	flagPR      bool
+	flagCommits bool
 )
 
 // NewCommand creates the commitlint command
@@ -45,8 +51,18 @@ Usage:
   hyperfleet-hooks commitlint <file>           # from file (e.g., .git/COMMIT_EDITMSG)
   echo "feat: ..." | hyperfleet-hooks commitlint  # from stdin
 
-  # CI: Validate entire PR (all commits + PR title)
+  # CI: Validate the PR title (the title becomes the squashed commit on merge)
   hyperfleet-hooks commitlint --pr
+
+  # CI: Also validate every commit in the PR range
+  hyperfleet-hooks commitlint --pr --commits
+
+In --pr mode the title is read from the JOB_SPEC environment variable that Prow
+sets on every job, falling back to the GitHub API (REPO_OWNER, REPO_NAME,
+PULL_NUMBER). Validation fails when no title can be obtained.
+
+Commits inside a PR are not validated by CI unless --commits is given: they only
+need the <type>: <subject> shape enforced locally by the commit-msg hook.
 
 Examples:
   # Pre-commit hook (local)
@@ -61,7 +77,10 @@ Examples:
 		RunE: run,
 	}
 
-	cmd.Flags().BoolVar(&pr, "pr", false, "Validate all commits and PR title (CI mode, auto-detect from environment)")
+	cmd.Flags().BoolVar(&flagPR, "pr", false,
+		"Validate the PR title (CI mode, auto-detect from environment)")
+	cmd.Flags().BoolVar(&flagCommits, "commits", false,
+		"With --pr, also validate every commit in the PR range")
 
 	return cmd
 }
@@ -69,9 +88,13 @@ Examples:
 func run(cmd *cobra.Command, args []string) error {
 	validator := commitlint.NewValidator()
 
-	// If --pr is provided, validate all commits and PR title
-	if pr {
-		return validatePR(cmd.Context(), validator)
+	if flagCommits && !flagPR {
+		return errCommitsRequiresPR
+	}
+
+	// If --pr is provided, validate the PR title (and the commits with --commits)
+	if flagPR {
+		return validatePR(cmd.Context(), validator, flagCommits)
 	}
 
 	// Single commit validation (from file or stdin)
@@ -129,25 +152,55 @@ func readStdin() (string, error) {
 	return string(content), nil
 }
 
-func validatePR(ctx context.Context, validator *commitlint.Validator) error {
+// commitsResult holds the outcome of per-commit validation for the summary
+type commitsResult struct {
+	commits     []string
+	failed      []string
+	passedCount int
+	checked     bool
+}
+
+// validatePR validates the PR title and, when withCommits is set, every commit in the PR range.
+// The title is required: validation fails when it cannot be obtained.
+func validatePR(ctx context.Context, validator *commitlint.Validator, withCommits bool) error {
+	var commits commitsResult
+	if withCommits {
+		result, err := validatePRCommits(ctx, validator)
+		if err != nil {
+			return err
+		}
+		commits = *result
+	}
+
+	title, prTitleFailed, err := validatePRTitle(ctx, validator)
+	if err != nil {
+		return err
+	}
+
+	return printSummary(commits, prTitleFailed, title)
+}
+
+// validatePRCommits validates each commit in the PR range, preferring local git history
+// and falling back to the GitHub API when the history is unavailable.
+func validatePRCommits(ctx context.Context, validator *commitlint.Validator) (*commitsResult, error) {
 	// Open git repository once and reuse
 	repo, err := git.PlainOpen(".")
 	if err != nil {
-		return fmt.Errorf("failed to open git repository: %w", err)
+		return nil, fmt.Errorf("failed to open git repository: %w", err)
 	}
 
 	// Get commit range from environment
 	baseSHA, headSHA, err := getCommitRange(repo)
 	if err != nil {
-		return fmt.Errorf("failed to get commit range: %w", err)
+		return nil, fmt.Errorf("failed to get commit range: %w", err)
 	}
 
 	// Validate SHA format
 	if errBase := validateSHA(baseSHA); errBase != nil {
-		return fmt.Errorf("invalid base SHA: %w", errBase)
+		return nil, fmt.Errorf("invalid base SHA: %w", errBase)
 	}
 	if errHead := validateSHA(headSHA); errHead != nil {
-		return fmt.Errorf("invalid head SHA: %w", errHead)
+		return nil, fmt.Errorf("invalid head SHA: %w", errHead)
 	}
 
 	fmt.Fprintf(os.Stderr, "🔍 Validating commits in range: %s..%s\n", shortSHA(baseSHA), shortSHA(headSHA))
@@ -157,27 +210,24 @@ func validatePR(ctx context.Context, validator *commitlint.Validator) error {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "⚠️  Local git history unavailable: %v\n", err)
 		fmt.Fprintln(os.Stderr, "   Falling back to GitHub API...")
-		return validatePRFromAPI(ctx, validator)
+		return validatePRCommitsFromAPI(ctx, validator)
 	}
 
+	result := &commitsResult{checked: true, commits: commits}
 	if len(commits) == 0 {
 		fmt.Fprintln(os.Stderr, "⚠️  No commits found in range")
-		return nil
+		return result, nil
 	}
 
 	fmt.Fprintf(os.Stderr, "📝 Found %d commit(s) to validate\n\n", len(commits))
 
 	// Validate each commit
-	failedCommits, passedCount := validateCommits(validator, repo, commits)
+	result.failed, result.passedCount = validateCommits(validator, repo, commits)
 
-	// Validate PR title
-	title, prTitleFailed := validatePRTitle(ctx, validator)
-
-	// Print summary and return result
-	return printSummary(failedCommits, prTitleFailed, commits, passedCount, title)
+	return result, nil
 }
 
-func validatePRFromAPI(ctx context.Context, validator *commitlint.Validator) error {
+func validatePRCommitsFromAPI(ctx context.Context, validator *commitlint.Validator) (*commitsResult, error) {
 	client := ghclient.NewClient()
 
 	apiCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -185,50 +235,47 @@ func validatePRFromAPI(ctx context.Context, validator *commitlint.Validator) err
 
 	prCommits, err := client.GetPRCommitsFromEnv(apiCtx)
 	if err != nil {
-		return fmt.Errorf("failed to get commits from GitHub API: %w", err)
+		return nil, fmt.Errorf("failed to get commits from GitHub API: %w", err)
 	}
 
+	result := &commitsResult{checked: true}
 	if len(prCommits) == 0 {
 		fmt.Fprintln(os.Stderr, "⚠️  No commits found in PR")
-		return nil
+		return result, nil
 	}
 
 	fmt.Fprintf(os.Stderr, "📝 Found %d commit(s) to validate (via GitHub API)\n\n", len(prCommits))
 
-	var failedCommits []string
-	var passedCount int
-	commitSHAs := make([]string, 0, len(prCommits))
+	result.commits = make([]string, 0, len(prCommits))
 
 	for _, pc := range prCommits {
-		commitSHAs = append(commitSHAs, pc.SHA)
+		result.commits = append(result.commits, pc.SHA)
 		subject := strings.SplitN(strings.TrimSpace(pc.Message), "\n", 2)[0]
 		fmt.Fprintf(os.Stderr, "Checking: %s - %s\n", shortSHA(pc.SHA), subject)
 
 		if validator.IsWhitelistedAuthor(pc.AuthorEmail, pc.AuthorName) {
 			fmt.Fprintf(os.Stderr, "  ⏭️  SKIP (whitelisted author: %s)\n", pc.AuthorEmail)
-			passedCount++
+			result.passedCount++
 			continue
 		}
 
-		result := validator.Validate(strings.TrimSpace(pc.Message))
-		if result.Valid {
+		res := validator.Validate(strings.TrimSpace(pc.Message))
+		if res.Valid {
 			fmt.Fprintln(os.Stderr, "  ✅ PASS")
-			passedCount++
+			result.passedCount++
 		} else {
 			fmt.Fprintln(os.Stderr, "  ❌ FAIL")
 			fmt.Fprintln(os.Stderr, "")
 			fmt.Fprintln(os.Stderr, "  Error details:")
-			for _, e := range result.Errors {
+			for _, e := range res.Errors {
 				fmt.Fprintf(os.Stderr, "    ✖ %s\n", e.Error())
 			}
 			fmt.Fprintln(os.Stderr, "")
-			failedCommits = append(failedCommits, shortSHA(pc.SHA))
+			result.failed = append(result.failed, shortSHA(pc.SHA))
 		}
 	}
 
-	title, prTitleFailed := validatePRTitle(ctx, validator)
-
-	return printSummary(failedCommits, prTitleFailed, commitSHAs, passedCount, title)
+	return result, nil
 }
 
 // validateCommits validates each commit message and returns failed commit SHAs and passed count
@@ -274,36 +321,81 @@ func validateCommits(
 	return failedCommits, passedCount
 }
 
-// validatePRTitle fetches and validates the PR title via GitHub API
-func validatePRTitle(ctx context.Context, validator *commitlint.Validator) (title string, failed bool) {
+// prTitle is a PR title together with where it was read from
+type prTitle struct {
+	title  string
+	author string
+	number string
+	source string
+}
+
+// getPRTitle resolves the PR title.
+// Priority: JOB_SPEC (set by Prow on every job) > GitHub API (REPO_OWNER, REPO_NAME, PULL_NUMBER).
+// It returns an error when neither source yields a title.
+func getPRTitle(ctx context.Context) (*prTitle, error) {
+	var jobSpecErr error
+	if raw := os.Getenv(prow.JobSpecEnv); raw != "" {
+		pull, err := prow.PullFromJobSpec(raw)
+		if err == nil {
+			return &prTitle{
+				title:  pull.Title,
+				author: pull.Author,
+				number: strconv.Itoa(pull.Number),
+				source: prow.JobSpecEnv,
+			}, nil
+		}
+		jobSpecErr = err
+		fmt.Fprintf(os.Stderr, "⚠️  Could not read PR title from %s: %v\n", prow.JobSpecEnv, err)
+		fmt.Fprintln(os.Stderr, "   Falling back to GitHub API...")
+	}
+
+	client := ghclient.NewClient()
+
+	apiCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	info, number, err := client.GetPRInfoFromEnv(apiCtx)
+	if err != nil {
+		if jobSpecErr != nil {
+			return nil, fmt.Errorf("could not get PR title: %s: %w; GitHub API: %w", prow.JobSpecEnv, jobSpecErr, err)
+		}
+		return nil, fmt.Errorf("could not get PR title: %s not set; GitHub API: %w", prow.JobSpecEnv, err)
+	}
+
+	return &prTitle{
+		title:  info.Title,
+		author: info.AuthorLogin,
+		number: number,
+		source: "GitHub API",
+	}, nil
+}
+
+// validatePRTitle resolves and validates the PR title.
+// It returns an error when the title cannot be obtained, and failed=true when it does not
+// meet the standard.
+func validatePRTitle(ctx context.Context, validator *commitlint.Validator) (title string, failed bool, err error) {
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Fprintln(os.Stderr, "📋 Validating PR title...")
 
-	client := ghclient.NewClient()
-
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	prInfo, prNumberStr, err := client.GetPRInfoFromEnv(ctx)
+	info, err := getPRTitle(ctx)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "⚠️  Could not fetch PR title: %v\n", err)
-		fmt.Fprintln(os.Stderr, "   Skipping PR title validation")
-		return "", false
+		fmt.Fprintf(os.Stderr, "  ❌ %v\n", err)
+		return "", true, err
 	}
 
-	title = prInfo.Title
-	fmt.Fprintf(os.Stderr, "PR #%s: %s\n", prNumberStr, title)
+	title = info.title
+	fmt.Fprintf(os.Stderr, "PR #%s (via %s): %s\n", info.number, info.source, title)
 
-	if validator.IsWhitelistedAuthor(prInfo.AuthorLogin) {
-		fmt.Fprintf(os.Stderr, "  ⏭️  SKIP (whitelisted author: %s)\n", prInfo.AuthorLogin)
-		return title, false
+	if validator.IsWhitelistedAuthor(info.author) {
+		fmt.Fprintf(os.Stderr, "  ⏭️  SKIP (whitelisted author: %s)\n", info.author)
+		return title, false, nil
 	}
 
 	result := validator.ValidatePRTitle(title)
 	if result.Valid {
 		fmt.Fprintln(os.Stderr, "  ✅ PASS")
-		return title, false
+		return title, false, nil
 	}
 
 	fmt.Fprintln(os.Stderr, "  ❌ FAIL")
@@ -313,16 +405,18 @@ func validatePRTitle(ctx context.Context, validator *commitlint.Validator) (titl
 		fmt.Fprintf(os.Stderr, "    ✖ %s\n", e.Error())
 	}
 	fmt.Fprintln(os.Stderr, "")
-	return title, true
+	return title, true, nil
 }
 
 // printSummary prints the validation summary and returns an error if any validation failed
-func printSummary(failedCommits []string, prTitleFailed bool, commits []string, passedCount int, title string) error {
+func printSummary(commits commitsResult, prTitleFailed bool, title string) error {
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-	if len(failedCommits) == 0 && !prTitleFailed {
-		fmt.Fprintf(os.Stderr, "✅ All %d commit(s) passed validation!\n", passedCount)
+	if len(commits.failed) == 0 && !prTitleFailed {
+		if commits.checked {
+			fmt.Fprintf(os.Stderr, "✅ All %d commit(s) passed validation!\n", commits.passedCount)
+		}
 		if title != "" {
 			fmt.Fprintln(os.Stderr, "✅ PR title passed validation!")
 		}
@@ -330,8 +424,8 @@ func printSummary(failedCommits []string, prTitleFailed bool, commits []string, 
 		return nil
 	}
 
-	if len(failedCommits) > 0 {
-		fmt.Fprintf(os.Stderr, "❌ %d of %d commit(s) failed validation\n", len(failedCommits), len(commits))
+	if len(commits.failed) > 0 {
+		fmt.Fprintf(os.Stderr, "❌ %d of %d commit(s) failed validation\n", len(commits.failed), len(commits.commits))
 	}
 	if prTitleFailed {
 		fmt.Fprintln(os.Stderr, "❌ PR title failed validation")
@@ -342,6 +436,7 @@ func printSummary(failedCommits []string, prTitleFailed bool, commits []string, 
 	fmt.Fprintln(os.Stderr, "   Format: [<JIRA_PROJECT_ID>-<TICKET_NUM> - ]<type>: <subject>")
 	fmt.Fprintln(os.Stderr, "   Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert")
 	fmt.Fprintln(os.Stderr, "   Max length: 72 chars (excluding JIRA prefix)")
+	fmt.Fprintln(os.Stderr, "   PR titles must include the JIRA ticket: the title becomes the squashed commit")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintf(os.Stderr, "   Full spec: %s\n", commitStandardURL)
 

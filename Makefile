@@ -153,6 +153,6 @@ image-push: check-container-tool image ## Build and push container image
 # CI
 # ------------------------------------------------------------------------------
 
-validate-commits: build ## Validate commits in current branch (CI mode)
+validate-commits: build ## Validate PR title and commits in current branch (needs JOB_SPEC or REPO_OWNER/REPO_NAME/PULL_NUMBER)
 	@echo "Validating commits..."
-	@./bin/hyperfleet-hooks commitlint --pr
+	@./bin/hyperfleet-hooks commitlint --pr --commits

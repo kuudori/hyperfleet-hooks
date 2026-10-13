@@ -34,7 +34,7 @@ From this point on, every `git commit` in that repository will validate the comm
 
 ### For CI (Prow)
 
-In Prow, a pre-built container image (`quay.io/openshift-hyperfleet/hyperfleet-git-hooks`) is used to validate all commits and the PR title. See the [commitlint documentation](docs/commitlint.md) for Prow configuration details.
+In Prow, a pre-built container image (`quay.io/openshift-hyperfleet/hyperfleet-git-hooks`) runs `hyperfleet-hooks commitlint --pr`, which validates the PR title. PRs are squashed on merge, so the PR title is the commit message that lands on `main` and it must carry the JIRA ticket. Commits inside a PR are not checked by CI: they only need the `<type>: <subject>` shape, which the local `commit-msg` hook enforces, so push review fixes as new commits rather than amending. See the [commitlint documentation](docs/commitlint.md) for Prow configuration details.
 
 ## Available Hooks
 
@@ -47,7 +47,7 @@ In Prow, a pre-built container image (`quay.io/openshift-hyperfleet/hyperfleet-g
 
 ### Commitlint
 
-Validates commit messages and PR titles against the [HyperFleet Commit Standard](https://github.com/openshift-hyperfleet/architecture/blob/main/hyperfleet/standards/commit-standard.md).
+Validates commit messages locally and PR titles in CI against the [HyperFleet Commit Standard](https://github.com/openshift-hyperfleet/architecture/blob/main/hyperfleet/standards/commit-standard.md). In CI the PR title becomes the squashed commit, so that is what `--pr` validates; add `--commits` to also check every commit in the PR.
 
 **[→ Full Documentation](docs/commitlint.md)**
 
