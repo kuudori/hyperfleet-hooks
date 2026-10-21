@@ -5,8 +5,8 @@
 TOOL_MOD := tools/go.mod
 gotool = go tool -modfile=$(TOOL_MOD) $(1)
 
-.PHONY: help build build-all test test-coverage lint clean install validate-commits \
-       check-container-tool image image-push
+.PHONY: help build build-all test test-coverage lint gofmt go-vet clean install install-hooks \
+       validate-commits check-container-tool image image-push
 
 # ==============================================================================
 # Configuration
@@ -91,6 +91,12 @@ lint: ## Run linters
 	$(call gotool,golangci-lint) run --timeout=5m
 	@echo "✓ Linting passed"
 
+gofmt: ## Format Go code
+	gofmt -s -w .
+
+go-vet: ## Run go vet
+	go vet ./...
+
 .PHONY: tools
 tools: ## Ensure tool dependencies are up to date
 	cd tools && go mod tidy
@@ -113,6 +119,9 @@ install: build ## Install binary to /usr/local/bin
 	@echo "Installing $(BINARY_NAME) to /usr/local/bin..."
 	@cp $(BIN_DIR)/$(BINARY_NAME) /usr/local/bin/$(BINARY_NAME)
 	@echo "✓ Installed $(BINARY_NAME)"
+
+install-hooks: ## Install pre-commit hooks
+	pre-commit install
 
 # ------------------------------------------------------------------------------
 # Container

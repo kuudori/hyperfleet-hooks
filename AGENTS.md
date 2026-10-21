@@ -11,8 +11,11 @@ Go 1.26.0 · Cobra CLI · go-git · go-github · stretchr/testify · golangci-li
 | `make build` | Build binary → `bin/hyperfleet-hooks` |
 | `make build-all` | Cross-platform binaries (linux/darwin, amd64/arm64) |
 | `make lint` | golangci-lint (pinned in tools/go.mod, config: `.golangci.yml`) |
+| `make gofmt` | Format Go code (`gofmt -s`) |
+| `make go-vet` | `go vet ./...` |
 | `make test` | Unit tests with race detection + coverage profile |
 | `make test-coverage` | `make test` + opens HTML coverage report |
+| `make install-hooks` | Install the repo's pre-commit hooks (`.pre-commit-config.yaml`) |
 | `make validate-commits` | Build + `hyperfleet-hooks commitlint --pr --commits` (needs the Prow PR env) |
 | `make image` | Build container image (podman/docker auto-detected) |
 
@@ -35,6 +38,7 @@ hyperfleet-hooks version                        # Print version info
 | Commitlint usage + Prow setup | `docs/commitlint.md` |
 | Go tooling hooks (lint, fmt, vet) | `docs/go-tooling.md` |
 | Pre-commit hook definitions | `.pre-commit-hooks.yaml` |
+| This repo's own pre-commit config | `.pre-commit-config.yaml` (dogfoods the published hooks at the release tag) |
 | Validation logic | `pkg/commitlint/validator.go` |
 | GitHub API client | `pkg/github/client.go` |
 | Prow JOB_SPEC parsing | `pkg/prow/jobspec.go` |
@@ -105,8 +109,8 @@ Commit format: `[<JIRA_PROJECT_ID>-<TICKET_NUM> - ]<type>: <subject>`
 ## Gotchas
 
 - **Container image is the primary distribution mechanism** — components don't install the binary, they reference `quay.io/openshift-hyperfleet/hyperfleet-git-hooks:latest` in Prow job specs
+- **This repo dogfoods its own hooks** — `.pre-commit-config.yaml` references `openshift-hyperfleet/hyperfleet-hooks` at the latest release tag; pre-commit clones it from GitHub even when run inside this repo
 - **Go tooling hooks (`language: system`) require Make targets in consuming repos** — `make lint`, `make gofmt`, `make go-vet` must exist
 - **`GITHUB_TOKEN` optional but recommended in CI** — without it, GitHub API rate limit is 60 req/hr (unauthenticated)
 - **JIRA prefix pattern accepts any project key** — not limited to `HYPERFLEET-`, any `[A-Z][A-Z0-9_]+-\d+` pattern works (OCM, MGDAPI, RHCLOUD, etc.)
 - **PR title validation is stricter than commit validation** — PR titles always require JIRA prefix
-

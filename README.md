@@ -95,12 +95,24 @@ See [commitlint documentation](docs/commitlint.md) for Prow CI setup and [go-too
 
 These instructions are only needed if you are contributing to this repository.
 
+### Prerequisites
+
+- Go 1.26.0 (the pinned golangci-lint v2.7.0 does not support Go 1.27; on newer toolchains, prefix commands with `GOTOOLCHAIN=go1.26.0`)
+- [pre-commit](https://pre-commit.com/#install)
+
 ```bash
+make install-hooks  # Install pre-commit hooks (secret scanning, commitlint, linting, file hygiene)
 make build    # Build binary
 make test     # Run tests
 make lint     # Run linters (golangci-lint, pinned in tools/go.mod)
 make image    # Build container image
 ```
+
+This repository consumes its own published hooks: `.pre-commit-config.yaml`
+references `openshift-hyperfleet/hyperfleet-hooks` at release `v0.3.0`.
+`pre-commit run --all-files` also runs the separately configured LeakTK secret
+scanning and file hygiene hooks. The fleet-wide rev alignment is tracked in
+[HYPERFLEET-1812](https://redhat.atlassian.net/browse/HYPERFLEET-1812).
 
 ### Releasing a New Version
 
